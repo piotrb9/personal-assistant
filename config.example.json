@@ -16,6 +16,7 @@
     "cheetah_endpoint_duration_sec": 1.0,
     "silence_threshold": 3000,
     "silence_duration_sec": 0.6,
+    "max_recording_time": 30.0,
     "initial_silence_duration_sec": 5.0,
     "speaker_warmup_sec": 5.0,
     "porcupine_sensitivity": 0.5,

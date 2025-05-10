@@ -648,25 +648,36 @@ class Listener:
         self.audio_buffer = bytearray()
         self.silence_threshold = config.get('silence_threshold')
         self.silence_duration = config.get('silence_duration_sec')
-        self.initial_silence_duration = config.get('initial_silence_duration_sec')  # seconds to start speaking
+        self.initial_silence_duration = config.get('initial_silence_duration_sec')
         self.last_voice_time = 0.0
         self.speech_started = False
+        self.recording_start_time = 0.0  # Track when recording started
+        self.max_recording_duration = config.get('max_recording_time')  # Maximum recording duration in seconds
         logging.info(
-            f"Listener initialized with silence_threshold={self.silence_threshold}, silence_duration={self.silence_duration}")
+            f"Listener initialized with silence_threshold={self.silence_threshold}, "
+            f"silence_duration={self.silence_duration}, max_duration={self.max_recording_duration}s"
+        )
 
     def process(self, pcm: Sequence[int]):
         if not self.recording:
             if self.porcupine.process(pcm) == 0:
-                print("\n$ Wake word detected! Recording now …")
+                print("\n$ Wake word detected! Recording now … (max 30 seconds)")
                 self.recording = True
-                self.last_voice_time = time.perf_counter()
+                self.recording_start_time = time.perf_counter()  # Start tracking recording time
+                self.last_voice_time = self.recording_start_time
                 self.audio_buffer.clear()
-                self.speech_started = False  # Reset speech detection
+                self.speech_started = False
                 logging.info("Started recording after wake word detection")
             return
 
         now = time.perf_counter()
-        # Compute peak amplitude and log it
+
+        # Check if maximum recording duration exceeded
+        if now - self.recording_start_time >= self.max_recording_duration:
+            logging.warning("Maximum recording duration (30s) exceeded - ending utterance")
+            self._end_utterance()
+            return
+
         peak = max(abs(sample) for sample in pcm) if pcm else 0
         logging.debug(f"Current peak amplitude: {peak}")
 
@@ -675,7 +686,6 @@ class Listener:
             self.speech_started = True
             logging.debug("Voice detected, reset silence timer")
 
-        # Append raw pcm to buffer
         for sample in pcm:
             self.audio_buffer += int(sample).to_bytes(2, 'little', signed=True)
 
@@ -684,7 +694,6 @@ class Listener:
         logging.debug(f"Current silence duration: {silence_time:.2f}s")
 
         if silence_time >= current_silence_threshold:
-            # Only end utterance if speech started or initial silence timeout reached
             if self.speech_started or silence_time >= self.initial_silence_duration:
                 logging.info(f"Silence detected for {silence_time:.2f}s - ending utterance")
                 self._end_utterance()
