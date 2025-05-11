@@ -4,3 +4,4 @@ pvspeaker==1.0.5
 openai~=1.77.0
 requests~=2.32.3
 pydub~=0.25.1
+requests~=2.32.3
