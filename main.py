@@ -2,10 +2,10 @@ import hashlib
 import json
 import logging
 import os
-import signal
 import sys
 import time
 import wave
+import csv  # Add at the top, with other imports
 from multiprocessing import Pipe, Process, Queue, active_children
 from multiprocessing.connection import Connection
 from threading import Thread
@@ -19,6 +19,9 @@ from pvspeaker import PvSpeaker
 import requests
 from pydub import AudioSegment
 import io
+import signal
+
+LOG_FILE = "interaction_log.csv"
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +29,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+def log_interaction(question, answer):
+    """Append an interaction to a CSV log file with timestamp, question, and answer."""
+    with open(LOG_FILE, mode='a', newline='', encoding='utf-8') as logf:
+        writer = csv.writer(logf, delimiter='\t')  # Changed delimiter to tab
+        writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), question, answer])
 
 class Commands:
     START = 'start'
@@ -35,7 +43,6 @@ class Commands:
     SPEAK = 'speak'
     FLUSH = 'flush'
     INTERRUPT = 'interrupt'
-
 
 class RTFProfiler:
     def __init__(self, sample_rate: int) -> None:
@@ -65,7 +72,6 @@ class RTFProfiler:
         self._audio_sec = 0.
         self._tick_sec = 0.
 
-
 class TPSProfiler(object):
     """
     Used to measure tokens per second. Useful if you want to see how fast a streaming
@@ -92,7 +98,6 @@ class TPSProfiler(object):
     def reset(self) -> None:
         self._num_tokens = 0
         self._start_sec = 0.
-
 
 class CompletionText(object):
     """
@@ -146,7 +151,6 @@ class CompletionText(object):
     def get_new_tokens(self) -> str:
         logging.debug("Retrieving new tokens: %s", self.new_tokens)
         return self.new_tokens
-
 
 class Speaker:
     def __init__(
@@ -216,7 +220,6 @@ class Speaker:
             self.speaking = False
             self.flushing = False
             Thread(target=stop).start()
-
 
 class Synthesizer:
     """
@@ -374,7 +377,6 @@ class Synthesizer:
                 except Exception as e:
                     logging.error(f"Error during synthesis: {e}")
 
-
 def synthesize_with_elevenlabs_streaming_tts(
         text,
         api_key,
@@ -451,7 +453,6 @@ def synthesize_with_elevenlabs_streaming_tts(
     for i in range(0, len(pcm_samples), pcm_chunk_size):
         yield pcm_samples[i: i + pcm_chunk_size]
 
-
 class Generator:
     """
     This is the class responsible for calling the OpenAI API instead of picoLLM.
@@ -468,6 +469,9 @@ class Generator:
         self.llm_connection = llm_connection
         self.llm_process = llm_process
         self.config = config
+        self._last_user_question = None  # For logging
+        self._last_answer_accum = []     # Accumulate streamed answer
+        self._last_question_time = None  # For logging
 
     def close(self):
         try:
@@ -481,6 +485,7 @@ class Generator:
         ppn_prompt = self.config['ppn_prompt']
         print(f'LLM (say {ppn_prompt} to interrupt) > ', end='', flush=True)
 
+        self._last_answer_accum = []      # Reset answer accumulator for new response
         self.synthesizer.start(utterance_end_sec)
         self.llm_connection.send({'command': Commands.PROCESS, 'text': text})
 
@@ -493,6 +498,7 @@ class Generator:
             message = self.llm_connection.recv()
             if message['command'] == Commands.SYNTHESIZE:
                 print(message['text'], end='', flush=True)
+                self._last_answer_accum.append(message['text'])      # Collect answer chunks
                 self.synthesizer.process(message['text'])
             elif message['command'] == Commands.FLUSH:
                 print('', flush=True)
@@ -500,6 +506,15 @@ class Generator:
                     tps = message['profile']
                     print(f'[OpenAI TPS: {round(tps, 2)}]')
                 self.synthesizer.flush()
+                # After a full response is complete, log question, time, answer
+                try:
+                    if self._last_user_question and self._last_answer_accum:
+                        log_interaction(
+                            self._last_user_question,
+                            ''.join(self._last_answer_accum)
+                        )
+                except Exception as e:
+                    logging.error(f"Failed to log interaction: {e}")
 
     @staticmethod
     def create_worker(config):
@@ -627,7 +642,6 @@ class Generator:
         finally:
             pass
 
-
 def pcm_bytes_to_wav(pcm_bytes: bytes, sample_rate: int = 16000) -> io.BytesIO:
     buf = io.BytesIO()
     with wave.open(buf, 'wb') as wf:
@@ -637,7 +651,6 @@ def pcm_bytes_to_wav(pcm_bytes: bytes, sample_rate: int = 16000) -> io.BytesIO:
         wf.writeframes(pcm_bytes)
     buf.seek(0)
     return buf
-
 
 class Listener:
     def __init__(self, generator, porcupine: pvporcupine.Porcupine, config):
@@ -730,11 +743,12 @@ class Listener:
 
             text = resp.strip()
             logging.info(f"Transcription received: {text!r}")
+            self.generator._last_user_question = text      # <--- Save for logging
+            self.generator._last_question_time = time.strftime('%Y-%m-%d %H:%M:%S')  # Save time
             self.generator.process(text, utterance_end_sec=None)
 
         except Exception as e:
             logging.error(f"Error during transcription: {e}")
-
 
 class Recorder:
     def __init__(
@@ -755,7 +769,6 @@ class Recorder:
             self.recorder.start()
         pcm = self.recorder.read()
         self.listener.process(pcm)
-
 
 def main(config):
     stop = [False]
@@ -819,7 +832,9 @@ def main(config):
             speaker.tick()
     finally:
         recorder.close()
-        listener.close()
+        # In the original code there was no Listener.close(). Let's add a check:
+        if hasattr(listener, "close"):
+            listener.close()
         generator.close()
         synthesizer.close()
         speaker.close()
@@ -830,7 +845,6 @@ def main(config):
         porcupine.delete()
         pv_recorder.delete()
         pv_speaker.delete()
-
 
 if __name__ == '__main__':
     config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.json')
