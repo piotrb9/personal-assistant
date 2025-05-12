@@ -5,7 +5,7 @@ import os
 import sys
 import time
 import wave
-import csv  # Add at the top, with other imports
+import csv
 from multiprocessing import Pipe, Process, Queue, active_children
 from multiprocessing.connection import Connection
 from threading import Thread
@@ -20,19 +20,17 @@ import requests
 from pydub import AudioSegment
 import io
 import signal
-
+import asyncio
 LOG_FILE = "interaction_log.csv"
 
-# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Set to DEBUG for more detailed logs
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 def log_interaction(question, answer):
-    """Append an interaction to a CSV log file with timestamp, question, and answer."""
     with open(LOG_FILE, mode='a', newline='', encoding='utf-8') as logf:
-        writer = csv.writer(logf, delimiter='\t')  # Changed delimiter to tab
+        writer = csv.writer(logf, delimiter='\t')
         writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), question, answer])
 
 class Commands:
@@ -72,13 +70,7 @@ class RTFProfiler:
         self._audio_sec = 0.
         self._tick_sec = 0.
 
-class TPSProfiler(object):
-    """
-    Used to measure tokens per second. Useful if you want to see how fast a streaming
-    generation is proceeding. Every time we receive "new tokens" from the stream,
-    we call tock().
-    """
-
+class TPSProfiler:
     def __init__(self) -> None:
         self._num_tokens = 0
         self._start_sec = 0.
@@ -99,14 +91,7 @@ class TPSProfiler(object):
         self._num_tokens = 0
         self._start_sec = 0.
 
-class CompletionText(object):
-    """
-    A helper to accumulate text from partial streaming responses and check
-    if any stop phrases are encountered. This logic is carried over from
-    the original code so that you can optionally intercept known EOS tokens
-    (e.g. for different model families) if desired.
-    """
-
+class CompletionText:
     def __init__(self, stop_phrases: list) -> None:
         self.stop_phrases = stop_phrases
         self.start: int = 0
@@ -134,7 +119,6 @@ class CompletionText(object):
                 if end > contains:
                     end = contains
                 logging.info("Stop phrase detected: %s", stop_phrase)
-            # partial overlap check
             for i in range(len(stop_phrase) - 1, 0, -1):
                 if self.text.endswith(stop_phrase[:i]):
                     ends = len(self.text) - i
@@ -194,7 +178,8 @@ class Speaker:
             self.pcmBuffer.clear()
             self.speaker.stop()
 
-    def tick(self):
+    async def tick(self):
+        await asyncio.sleep(0)
         def stop():
             logging.info("Stopping speaker after flush.")
             self.speaker.flush()
@@ -222,10 +207,6 @@ class Speaker:
             Thread(target=stop).start()
 
 class Synthesizer:
-    """
-    Synthesizer using OpenAI TTS endpoint.
-    """
-
     def __init__(self, speaker: Speaker, tts_connection, tts_process, config):
         self.speaker = speaker
         self.tts_connection = tts_connection
@@ -263,7 +244,8 @@ class Synthesizer:
         except Exception as e:
             logging.error(f"Error while interrupting synthesizer: {e}")
 
-    def tick(self):
+    async def tick(self):
+        await asyncio.sleep(0)
         while self.tts_connection.poll():
             message = self.tts_connection.recv()
             if message['command'] == Commands.SPEAK:
@@ -334,7 +316,6 @@ class Synthesizer:
                     sentence_to_synthesize = text_buffer.strip()
                     text_buffer = ""
 
-                    # Do this to avoid sending empty strings to the TTS
                     if sentence_to_synthesize in white_characters:
                         continue
 
@@ -357,7 +338,6 @@ class Synthesizer:
             if close and len(text_buffer.strip()) > 0:
                 sentence_to_synthesize = text_buffer.strip()
 
-                # Do this to avoid sending empty strings to the TTS
                 if sentence_to_synthesize in white_characters:
                     continue
 
@@ -385,14 +365,11 @@ def synthesize_with_elevenlabs_streaming_tts(
         sample_rate=24000,
         cache_dir='tts_cache',
         previous_text_input=None):
-    # Ensure the cache directory exists
     os.makedirs(cache_dir, exist_ok=True)
 
-    # Generate a unique filename based on the text
     text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
     cache_path = os.path.join(cache_dir, f"{text_hash}.mp3")
 
-    # Check if the audio file already exists in the cache
     if os.path.exists(cache_path):
         logging.info(f"Using cached audio for text: {text}")
         with open(cache_path, 'rb') as f:
@@ -417,13 +394,11 @@ def synthesize_with_elevenlabs_streaming_tts(
             json_payload["previous_text"] = previous_text_input
 
         try:
-            # Make the API request
             with requests.post(url, json=json_payload, headers=headers, stream=True) as r:
                 r.raise_for_status()
                 buffer = b"".join(r.iter_content(chunk_size=4096))
             logging.info("Audio fetched successfully from ElevenLabs API.")
 
-            # Save the response to the cache
             with open(cache_path, 'wb') as f:
                 f.write(buffer)
             logging.info(f"Audio saved to cache: {cache_path}")
@@ -431,7 +406,6 @@ def synthesize_with_elevenlabs_streaming_tts(
             logging.error(f"Error fetching audio from ElevenLabs API: {e}")
             raise
 
-    # Decode the audio and yield PCM samples
     try:
         segment = AudioSegment.from_file(io.BytesIO(buffer), format="mp3")
         segment = segment.set_frame_rate(sample_rate).set_channels(1).set_sample_width(2)
@@ -442,23 +416,16 @@ def synthesize_with_elevenlabs_streaming_tts(
             for i in range(0, len(raw_pcm), 2)
         ]
 
-        # Log successful decoding
         logging.info("Audio decoded successfully.")
     except Exception as e:
         logging.error(f"Error decoding audio: {e}")
         raise
 
-    # Yield PCM samples in chunks
     pcm_chunk_size = 2048
     for i in range(0, len(pcm_samples), pcm_chunk_size):
         yield pcm_samples[i: i + pcm_chunk_size]
 
 class Generator:
-    """
-    This is the class responsible for calling the OpenAI API instead of picoLLM.
-    It uses a separate process and streams partial tokens back to the parent.
-    """
-
     def __init__(
             self,
             synthesizer: Synthesizer,
@@ -469,9 +436,9 @@ class Generator:
         self.llm_connection = llm_connection
         self.llm_process = llm_process
         self.config = config
-        self._last_user_question = None  # For logging
-        self._last_answer_accum = []     # Accumulate streamed answer
-        self._last_question_time = None  # For logging
+        self._last_user_question = None
+        self._last_answer_accum = []
+        self._last_question_time = None
 
     def close(self):
         try:
@@ -481,24 +448,34 @@ class Generator:
             sys.stderr.write(str(e))
             self.llm_process.kill()
 
-    def process(self, text: str, utterance_end_sec):
+    async def langflow_orchestrate(self, text: str):
+        orchestrated_response = await self.send_to_langflow(text)
+        return orchestrated_response
+
+    async def send_to_langflow(self, text: str):
+        return f"Orchestrated response for: {text}"
+
+    async def process(self, text: str, utterance_end_sec):
         ppn_prompt = self.config['ppn_prompt']
         print(f'LLM (say {ppn_prompt} to interrupt) > ', end='', flush=True)
 
-        self._last_answer_accum = []      # Reset answer accumulator for new response
+        self._last_answer_accum = []
+        orchestrated_response = await self.langflow_orchestrate(text)
+        print(orchestrated_response)
         self.synthesizer.start(utterance_end_sec)
-        self.llm_connection.send({'command': Commands.PROCESS, 'text': text})
+        self.llm_connection.send({'command': Commands.PROCESS, 'text': orchestrated_response})
 
     def interrupt(self):
         self.llm_connection.send({'command': Commands.INTERRUPT})
         self.synthesizer.interrupt()
 
-    def tick(self):
+    async def tick(self):
+        await asyncio.sleep(0)
         while self.llm_connection.poll():
             message = self.llm_connection.recv()
             if message['command'] == Commands.SYNTHESIZE:
                 print(message['text'], end='', flush=True)
-                self._last_answer_accum.append(message['text'])      # Collect answer chunks
+                self._last_answer_accum.append(message['text'])
                 self.synthesizer.process(message['text'])
             elif message['command'] == Commands.FLUSH:
                 print('', flush=True)
@@ -506,7 +483,6 @@ class Generator:
                     tps = message['profile']
                     print(f'[OpenAI TPS: {round(tps, 2)}]')
                 self.synthesizer.flush()
-                # After a full response is complete, log question, time, answer
                 try:
                     if self._last_user_question and self._last_answer_accum:
                         log_interaction(
@@ -518,10 +494,6 @@ class Generator:
 
     @staticmethod
     def create_worker(config):
-        """
-        Creates the worker process that calls OpenAI's ChatCompletion in a loop
-        for streaming tokens. We communicate with the parent over pipe.
-        """
         main_connection, process_connection = Pipe()
         process = Process(target=Generator.worker, args=(process_connection, config))
         process.start()
@@ -529,14 +501,6 @@ class Generator:
 
     @staticmethod
     def worker(connection: Connection, config):
-        """
-        The worker function that handles:
-          - Listening for commands (CLOSE, INTERRUPT, PROCESS)
-          - On PROCESS, it calls OpenAI's ChatCompletion, streaming partial tokens
-          - Each partial token is sent to parent with command SYNTHESIZE
-          - When done, we send command FLUSH
-        """
-
         client = openai.OpenAI(api_key=config.get('openai_api_key'))
 
         def handler(_, __) -> None:
@@ -544,24 +508,20 @@ class Generator:
 
         signal.signal(signal.SIGINT, handler)
 
-        # Configure OpenAI
         if 'openai_api_key' in config:
             openai.api_key = config['openai_api_key']
         else:
             print("Missing 'openai_api_key' in config.", file=sys.stderr)
             sys.exit(1)
 
-        # Send startup message to the parent
         openai_info = {
             'version': 'OpenAI API (Python client)',
             'model': config.get('openai_model_name', 'gpt-3.5-turbo')
         }
         connection.send(openai_info)
 
-        # Profiler for tokens
         openai_profiler = TPSProfiler()
 
-        # Stop phrases
         stop_phrases = [
             '</s>', '<end_of_turn>', '<|endoftext|>', '<|eot_id|>', '<|end|>', '<|user|>', '<|assistant|>'
         ]
@@ -571,7 +531,6 @@ class Generator:
         prompt = [None]
         interrupt_requested = [False]
 
-        # A separate thread to handle inbound commands
         def event_manager():
             while not close_flag[0]:
                 message = connection.recv()
@@ -592,7 +551,6 @@ class Generator:
                     user_text = prompt[0]
                     prompt[0] = None
 
-                    # Add short answers instruction if enabled
                     short_answers_instruction = \
                         "You are a voice assistant. Your answers must be very brief but informative. Respond in only 1 short sentence."
                     if config['short_answers']:
@@ -602,14 +560,12 @@ class Generator:
                     openai_profiler.reset()
                     interrupt_requested[0] = False
 
-                    # Build messages for ChatCompletion
                     messages = []
                     if config.get('openai_system_prompt'):
                         messages.append({"role": "system", "content": config['openai_system_prompt']})
                     messages.append({"role": "user", "content": user_text})
 
                     try:
-                        # Make chat completion request with streaming
                         response = client.chat.completions.create(
                             model=config.get('openai_model_name'),
                             messages=messages,
@@ -618,7 +574,6 @@ class Generator:
                             stream=True
                         )
 
-                        # Stream partial chunks
                         for chunk in response:
                             if interrupt_requested[0]:
                                 raise KeyboardInterrupt
@@ -631,7 +586,6 @@ class Generator:
                                 if len(new_tokens) > 0:
                                     connection.send({'command': Commands.SYNTHESIZE, 'text': new_tokens})
 
-                        # Send FLUSH command after completion
                         connection.send({'command': Commands.FLUSH, 'profile': openai_profiler.tps()})
 
                     except KeyboardInterrupt:
@@ -664,19 +618,19 @@ class Listener:
         self.initial_silence_duration = config.get('initial_silence_duration_sec')
         self.last_voice_time = 0.0
         self.speech_started = False
-        self.recording_start_time = 0.0  # Track when recording started
-        self.max_recording_duration = config.get('max_recording_time')  # Maximum recording duration in seconds
+        self.recording_start_time = 0.0
+        self.max_recording_duration = config.get('max_recording_time')
         logging.info(
             f"Listener initialized with silence_threshold={self.silence_threshold}, "
             f"silence_duration={self.silence_duration}, max_duration={self.max_recording_duration}s"
         )
 
-    def process(self, pcm: Sequence[int]):
+    async def process(self, pcm: Sequence[int]):
         if not self.recording:
             if self.porcupine.process(pcm) == 0:
                 print("\n$ Wake word detected! Recording now … (max 30 seconds)")
                 self.recording = True
-                self.recording_start_time = time.perf_counter()  # Start tracking recording time
+                self.recording_start_time = time.perf_counter()
                 self.last_voice_time = self.recording_start_time
                 self.audio_buffer.clear()
                 self.speech_started = False
@@ -685,10 +639,9 @@ class Listener:
 
         now = time.perf_counter()
 
-        # Check if maximum recording duration exceeded
         if now - self.recording_start_time >= self.max_recording_duration:
             logging.warning("Maximum recording duration (30s) exceeded - ending utterance")
-            self._end_utterance()
+            await self._end_utterance()
             return
 
         peak = max(abs(sample) for sample in pcm) if pcm else 0
@@ -709,9 +662,9 @@ class Listener:
         if silence_time >= current_silence_threshold:
             if self.speech_started or silence_time >= self.initial_silence_duration:
                 logging.info(f"Silence detected for {silence_time:.2f}s - ending utterance")
-                self._end_utterance()
+                await self._end_utterance()
 
-    def _end_utterance(self):
+    async def _end_utterance(self):
         self.recording = False
         logging.info(f"Processing utterance of {len(self.audio_buffer)} bytes")
 
@@ -724,28 +677,26 @@ class Listener:
         try:
             openai.api_key = self.config['openai_api_key']
 
-            # Convert to MP3
             audio = AudioSegment.from_wav(wav)
             mp3_buffer = io.BytesIO()
             audio.export(mp3_buffer, format='mp3', bitrate='32k')
             mp3_buffer.seek(0)
 
-            # Create a proper file object for OpenAI API
             mp3_file = io.BytesIO(mp3_buffer.getvalue())
             mp3_file.name = 'audio.mp3'
 
             logging.info("Sending compressed audio to OpenAI API")
             resp = openai.audio.transcriptions.create(
-                file=mp3_file,  # Use file object with name
+                file=mp3_file,
                 model="whisper-1",
                 response_format="text"
             )
 
             text = resp.strip()
             logging.info(f"Transcription received: {text!r}")
-            self.generator._last_user_question = text      # <--- Save for logging
-            self.generator._last_question_time = time.strftime('%Y-%m-%d %H:%M:%S')  # Save time
-            self.generator.process(text, utterance_end_sec=None)
+            self.generator._last_user_question = text
+            self.generator._last_question_time = time.strftime('%Y-%m-%d %H:%M:%S')
+            await self.generator.process(text, utterance_end_sec=None)
 
         except Exception as e:
             logging.error(f"Error during transcription: {e}")
@@ -763,14 +714,15 @@ class Recorder:
         if self.recording:
             self.recorder.stop()
 
-    def tick(self):
+    async def tick(self):
+        await asyncio.sleep(0)
         if not self.recording:
             self.recording = True
             self.recorder.start()
         pcm = self.recorder.read()
-        self.listener.process(pcm)
+        await self.listener.process(pcm)
 
-def main(config):
+async def run_agents(config):
     stop = [False]
 
     def handler(_, __) -> None:
@@ -778,13 +730,10 @@ def main(config):
 
     signal.signal(signal.SIGINT, handler)
 
-    # Create the LLM worker (OpenAI)
     llm_connection, llm_process = Generator.create_worker(config)
 
-    # Create TTS worker
     tts_connection, tts_process = Synthesizer.create_worker(config)
 
-    # Setup Porcupine
     if 'keyword_model_path' not in config:
         porcupine = pvporcupine.create(
             access_key=config['access_key'],
@@ -800,15 +749,12 @@ def main(config):
 
     print(f"→ Porcupine v{porcupine.version}")
 
-    # Setup Audio In/Out
     pv_recorder = PvRecorder(frame_length=porcupine.frame_length)
     pv_speaker = PvSpeaker(sample_rate=int(tts_connection.recv()), bits_per_sample=16, buffer_size_secs=1)
 
-    # Retrieve info from the LLM worker
     llm_info = llm_connection.recv()
     print(f"→ OpenAI LLM: {llm_info['version']} <{llm_info['model']}>")
 
-    # Retrieve info from the TTS worker
     tts_info = tts_connection.recv()
     print(f"→ tts v{tts_info['version']}")
 
@@ -826,18 +772,19 @@ def main(config):
             if not llm_process.is_alive() or not tts_process.is_alive():
                 break
 
-            recorder.tick()
-            generator.tick()
-            synthesizer.tick()
-            speaker.tick()
+            await asyncio.gather(
+                recorder.tick(),
+                generator.tick(),
+                synthesizer.tick(),
+                speaker.tick()
+            )
     finally:
         recorder.close()
-        # In the original code there was no Listener.close(). Let's add a check:
         if hasattr(listener, "close"):
-            listener.close()
-        generator.close()
-        synthesizer.close()
-        speaker.close()
+            await listener.close()
+        await generator.close()
+        await synthesizer.close()
+        await speaker.close()
 
         for child in active_children():
             child.kill()
@@ -850,5 +797,4 @@ if __name__ == '__main__':
     config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.json')
     with open(config_path, 'r') as fd:
         config = json.load(fd)
-
-    main(config)
+    asyncio.run(run_agents(config))
