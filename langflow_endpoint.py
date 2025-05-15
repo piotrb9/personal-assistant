@@ -32,9 +32,6 @@ def query_langflow(input_value):
         # Print response
         # print(response.text)
         response_json = response.json()  # Parse the JSON response
-
-        print(f"Response JSON: {response_json}")
-        print(f"Response Text: {response_json['outputs'][0]['outputs'][0]['results']['message']['text']}")
         return response_json["outputs"][0]["outputs"][0]["results"]["message"]["text"]  # Return the text
 
     except requests.exceptions.RequestException as e:

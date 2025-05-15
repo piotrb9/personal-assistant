@@ -465,7 +465,7 @@ class Generator:
 
         self._last_answer_accum = []
         orchestrated_response = await self.langflow_orchestrate(text)
-        print(orchestrated_response)
+
         self.synthesizer.start(utterance_end_sec)
         self.llm_connection.send({'command': Commands.PROCESS, 'text': orchestrated_response})
 
@@ -505,7 +505,6 @@ class Generator:
 
     @staticmethod
     def worker(connection: Connection, config):
-        client = openai.OpenAI(api_key=config.get('openai_api_key'))
 
         def handler(_, __) -> None:
             pass
@@ -569,29 +568,10 @@ class Generator:
                         messages.append({"role": "system", "content": config['openai_system_prompt']})
                     messages.append({"role": "user", "content": user_text})
 
-                    # print(messages)
 
                     try:
                         response = query_langflow(user_text)
 
-                        # for chunk in response:
-                        #     if interrupt_requested[0]:
-                        #         raise KeyboardInterrupt
-                        #     delta = chunk.choices[0].delta
-                        #     if hasattr(delta, 'content'):
-                        #         token_text = delta.content
-                        #         openai_profiler.tock()
-                        #         completion.append(token_text)
-                        #         new_tokens = completion.get_new_tokens()
-                        #         if len(new_tokens) > 0:
-                        #             connection.send({'command': Commands.SYNTHESIZE, 'text': new_tokens})
-                        #
-                        # connection.send({'command': Commands.FLUSH, 'profile': openai_profiler.tps()})
-
-                        # for token in response.split():
-                        #     connection.send({'command': Commands.SYNTHESIZE, 'text': token})
-
-                        # Dividethe response into sentences
                         sentences = re.split(r'(?<=[.!?]) +', response)
                         for sentence in sentences:
                             if interrupt_requested[0]:
