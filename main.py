@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 import wave
@@ -571,14 +572,6 @@ class Generator:
                     # print(messages)
 
                     try:
-                        # response = client.chat.completions.create(
-                        #     model=config.get('openai_model_name'),
-                        #     messages=messages,
-                        #     max_tokens=config.get('openai_max_tokens', 256),
-                        #     temperature=config.get('openai_temperature', 0.7),
-                        #     stream=True
-                        # )
-
                         response = query_langflow(user_text)
 
                         # for chunk in response:
@@ -597,7 +590,14 @@ class Generator:
 
                         # for token in response.split():
                         #     connection.send({'command': Commands.SYNTHESIZE, 'text': token})
-                        connection.send({'command': Commands.SYNTHESIZE, 'text': response})
+
+                        # Dividethe response into sentences
+                        sentences = re.split(r'(?<=[.!?]) +', response)
+                        for sentence in sentences:
+                            if interrupt_requested[0]:
+                                raise KeyboardInterrupt
+                            openai_profiler.tock()
+                            connection.send({'command': Commands.SYNTHESIZE, 'text': sentence})
 
                         connection.send({'command': Commands.FLUSH, 'profile': openai_profiler.tps()})
 
