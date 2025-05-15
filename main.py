@@ -95,50 +95,6 @@ class TPSProfiler:
         self._num_tokens = 0
         self._start_sec = 0.
 
-class CompletionText:
-    def __init__(self, stop_phrases: list) -> None:
-        self.stop_phrases = stop_phrases
-        self.start: int = 0
-        self.text: str = ''
-        self.new_tokens: str = ''
-        logging.info("CompletionText initialized with stop phrases: %s", stop_phrases)
-
-    def reset(self):
-        logging.info("Resetting CompletionText state.")
-        self.start = 0
-        self.text = ''
-        self.new_tokens = ''
-
-    def append(self, text: str) -> None:
-        if text is None:
-            logging.debug("No text to append.")
-            return
-        logging.debug("Appending text: %s", text)
-        self.text += text
-        end = len(self.text)
-
-        for stop_phrase in self.stop_phrases:
-            if stop_phrase in self.text:
-                contains = self.text.index(stop_phrase)
-                if end > contains:
-                    end = contains
-                logging.info("Stop phrase detected: %s", stop_phrase)
-            for i in range(len(stop_phrase) - 1, 0, -1):
-                if self.text.endswith(stop_phrase[:i]):
-                    ends = len(self.text) - i
-                    if end > ends:
-                        end = ends
-                    logging.debug("Partial overlap detected with stop phrase: %s", stop_phrase[:i])
-                    break
-
-        start = self.start
-        self.start = end
-        self.new_tokens = self.text[start:end]
-        logging.debug("New tokens extracted: %s", self.new_tokens)
-
-    def get_new_tokens(self) -> str:
-        logging.debug("Retrieving new tokens: %s", self.new_tokens)
-        return self.new_tokens
 
 class Speaker:
     def __init__(
@@ -485,7 +441,7 @@ class Generator:
                 print('', flush=True)
                 if self.config['profile']:
                     tps = message['profile']
-                    print(f'[OpenAI TPS: {round(tps, 2)}]')
+                    print(f'[LLM TPS: {round(tps, 2)}]')
                 self.synthesizer.flush()
                 try:
                     if self._last_user_question and self._last_answer_accum:
@@ -511,24 +467,12 @@ class Generator:
 
         signal.signal(signal.SIGINT, handler)
 
-        if 'openai_api_key' in config:
-            openai.api_key = config['openai_api_key']
-        else:
-            print("Missing 'openai_api_key' in config.", file=sys.stderr)
-            sys.exit(1)
-
-        openai_info = {
-            'version': 'OpenAI API (Python client)',
-            'model': config.get('openai_model_name', 'gpt-3.5-turbo')
+        llm_info = {
+            'version': 'Local Langflow'
         }
-        connection.send(openai_info)
+        connection.send(llm_info)
 
         openai_profiler = TPSProfiler()
-
-        stop_phrases = [
-            '</s>', '<end_of_turn>', '<|endoftext|>', '<|eot_id|>', '<|end|>', '<|user|>', '<|assistant|>'
-        ]
-        completion = CompletionText(stop_phrases)
 
         close_flag = [False]
         prompt = [None]
@@ -554,7 +498,6 @@ class Generator:
                     user_text = prompt[0]
                     prompt[0] = None
 
-                    completion.reset()
                     openai_profiler.reset()
                     interrupt_requested[0] = False
 
@@ -735,10 +678,10 @@ async def run_agents(config):
     pv_speaker = PvSpeaker(sample_rate=int(tts_connection.recv()), bits_per_sample=16, buffer_size_secs=1)
 
     llm_info = llm_connection.recv()
-    print(f"→ OpenAI LLM: {llm_info['version']} <{llm_info['model']}>")
+    print(f"→ Langflow LLM: {llm_info['version']}")
 
     tts_info = tts_connection.recv()
-    print(f"→ tts v{tts_info['version']}")
+    print(f"→ tts {tts_info['version']}")
 
     speaker = Speaker(pv_speaker, config)
     synthesizer = Synthesizer(speaker, tts_connection, tts_process, config)
