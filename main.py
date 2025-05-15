@@ -554,20 +554,9 @@ class Generator:
                     user_text = prompt[0]
                     prompt[0] = None
 
-                    short_answers_instruction = \
-                        "You are a voice assistant. Your answers must be very brief but informative. Respond in only 1 short sentence."
-                    if config['short_answers']:
-                        user_text = f"{short_answers_instruction} {user_text}"
-
                     completion.reset()
                     openai_profiler.reset()
                     interrupt_requested[0] = False
-
-                    messages = []
-                    if config.get('openai_system_prompt'):
-                        messages.append({"role": "system", "content": config['openai_system_prompt']})
-                    messages.append({"role": "user", "content": user_text})
-
 
                     try:
                         response = query_langflow(user_text)

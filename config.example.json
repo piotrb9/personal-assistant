@@ -6,7 +6,6 @@
     "openai_top_p": 0.9,
     "openai_tts_model": "tts-1",
     "openai_tts_voice": "alloy",
-    "openai_system_prompt": "You are a helpful assistant. Respond in only 2 short sentences (max 15 words)",
     "ppn_prompt": "Hey Assistant",
     "profile": false,
     "elevenlabs_api_key":  "ELEVENLABS_API_KEY",
@@ -21,6 +20,5 @@
     "speaker_warmup_sec": 5.0,
     "porcupine_sensitivity": 0.5,
     "speaker_warmup_sec_warmup_sec": 0,
-    "short_answers": false,
     "langflow_url": "URL_TO_THE_FLOW"
 }
