@@ -21,10 +21,13 @@ from pydub import AudioSegment
 import io
 import signal
 import asyncio
+
+from langflow_endpoint import query_langflow
+
 LOG_FILE = "interaction_log.csv"
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
@@ -565,26 +568,36 @@ class Generator:
                         messages.append({"role": "system", "content": config['openai_system_prompt']})
                     messages.append({"role": "user", "content": user_text})
 
-                    try:
-                        response = client.chat.completions.create(
-                            model=config.get('openai_model_name'),
-                            messages=messages,
-                            max_tokens=config.get('openai_max_tokens', 256),
-                            temperature=config.get('openai_temperature', 0.7),
-                            stream=True
-                        )
+                    # print(messages)
 
-                        for chunk in response:
-                            if interrupt_requested[0]:
-                                raise KeyboardInterrupt
-                            delta = chunk.choices[0].delta
-                            if hasattr(delta, 'content'):
-                                token_text = delta.content
-                                openai_profiler.tock()
-                                completion.append(token_text)
-                                new_tokens = completion.get_new_tokens()
-                                if len(new_tokens) > 0:
-                                    connection.send({'command': Commands.SYNTHESIZE, 'text': new_tokens})
+                    try:
+                        # response = client.chat.completions.create(
+                        #     model=config.get('openai_model_name'),
+                        #     messages=messages,
+                        #     max_tokens=config.get('openai_max_tokens', 256),
+                        #     temperature=config.get('openai_temperature', 0.7),
+                        #     stream=True
+                        # )
+
+                        response = query_langflow(user_text)
+
+                        # for chunk in response:
+                        #     if interrupt_requested[0]:
+                        #         raise KeyboardInterrupt
+                        #     delta = chunk.choices[0].delta
+                        #     if hasattr(delta, 'content'):
+                        #         token_text = delta.content
+                        #         openai_profiler.tock()
+                        #         completion.append(token_text)
+                        #         new_tokens = completion.get_new_tokens()
+                        #         if len(new_tokens) > 0:
+                        #             connection.send({'command': Commands.SYNTHESIZE, 'text': new_tokens})
+                        #
+                        # connection.send({'command': Commands.FLUSH, 'profile': openai_profiler.tps()})
+
+                        # for token in response.split():
+                        #     connection.send({'command': Commands.SYNTHESIZE, 'text': token})
+                        connection.send({'command': Commands.SYNTHESIZE, 'text': response})
 
                         connection.send({'command': Commands.FLUSH, 'profile': openai_profiler.tps()})
 
