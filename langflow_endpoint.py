@@ -12,14 +12,12 @@ def query_langflow(input_value):
 
     url = config['langflow_url']
 
-    # Request payload configuration
     payload = {
         "input_value": input_value,  # The input value to be processed by the flow
-        "output_type": "chat",  # Specifies the expected output format
-        "input_type": "chat"  # Specifies the input format
+        "output_type": "chat",
+        "input_type": "chat"
     }
 
-    # Request headers
     headers = {
         "Content-Type": "application/json"
     }
@@ -29,9 +27,7 @@ def query_langflow(input_value):
         response = requests.request("POST", url, json=payload, headers=headers)
         response.raise_for_status()  # Raise exception for bad status codes
 
-        # Print response
-        # print(response.text)
-        response_json = response.json()  # Parse the JSON response
+        response_json = response.json()
         return response_json["outputs"][0]["outputs"][0]["results"]["message"]["text"]  # Return the text
 
     except requests.exceptions.RequestException as e:
