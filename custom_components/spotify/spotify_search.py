@@ -4,6 +4,7 @@ from langflow.schema import Data
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
+
 class SpotifySearchComponent(Component):
     display_name = "Spotify Search (Client Credentials)"
     description = "Searches Spotify using Client Credentials Flow."
@@ -80,17 +81,17 @@ class SpotifySearchComponent(Component):
                     artists = ", ".join([artist['name'] for artist in item.get("artists", [])])
                     data_content["artists"] = artists
                     data_content["album"] = item.get("album", {}).get("name")
-                    # print(f"Found Track: {item.get('name')} by {artists}") # Logowanie [21]
+                    # print(f"Found Track: {item.get('name')} by {artists}")
                 elif self.search_type == "artist":
                     data_content["genres"] = ", ".join(item.get("genres", []))
                     # print(f"Found Artist: {item.get('name')}")
 
                 formatted_results.append(Data(data=data_content))
 
-            self.status = f"Successfully found {len(formatted_results)} {self.search_type}(s) for query '{self.query}'." [22]
+            self.status = f"Successfully found {len(formatted_results)} {self.search_type}(s) for query '{self.query}'."
             return formatted_results
 
         except Exception as e:
-            self.status = f"Error during Spotify search: {e}" [22]
-            self.log(f"Error: {e}") [21]
+            self.status = f"Error during Spotify search: {e}"
+            self.log(f"Error: {e}")
             return [Data(data={"error": str(e)})]
