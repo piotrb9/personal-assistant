@@ -22,18 +22,55 @@ A Python-based voice assistant that uses speech recognition and text-to-speech c
 
 ## Installation
 
-1. Install ReSpeaker 2-Mics Pi HAT drivers:
+1. Ensure you have Python 3.11 installed on your Raspberry Pi.
+   - You can check your Python version with:
+   ```bash
+   python3 --version
+   ```
+   - If you need to install Python 3.11, follow the instructions for your Raspberry Pi OS.
+   - For Raspberry Pi OS Bullseye, you can use:
+   ```bash
+    sudo apt update
+    sudo apt install python3.11 python3.11-venv python3.11-dev
+    sudo apt install python3-pip
+   ```
+
+2. Install Rust and Cargo
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source $HOME/.cargo/env
+    cargo --version
+   ```
+   
+   3. Install uv using cargo
+   ```bash
+   git clone https://github.com/astral-sh/uv.git
+   cd uv
+   cargo build --release
+
+   ```
+
+2. Install ReSpeaker 2-Mics Pi HAT drivers:
    - Follow the official documentation: [ReSpeaker 2 Mics Pi HAT](https://wiki.seeedstudio.com/respeaker_2_mics_pi_hat_raspberry_v2/) - this might not be enough if you use a newer kernel version.
    - To fix this issue, you can use a script that automates the installation process: [Pi Voice Assistant Script](https://github.com/dihan/pi-voice-assistant):
    ```bash
-    git clone https://github.com/dihan/pi-voice-assistant
-    chmod +x install.sh
-    sudo ./install.sh```
-1. Clone the repository and navigate to the project directory:
+   git clone https://github.com/dihan/pi-voice-assistant
+   cd pi-voice-assistant
+   chmod +x install.sh 
+   sudo ./install.sh
+   ```
+   
+3. Clone the repository and navigate to the project directory:
 ```bash
 git clone https://github.com/piotrb9/personal-assistant.git
 cd personal-assistant
 ```
+4. Create a virtual environment (optional but recommended):
+```bash
+python3.11 -m venv venv
+source venv/bin/activate
+````
+
 Install the required dependencies:
 ```bash
 pip install -r requirements.txt
@@ -90,3 +127,10 @@ Installing the drivers is a nightmare. Using a script made it work for me after 
 Not tested, but suggested by many users:
 This one contains different kernel versions as branches: https://github.com/HinTak/seeed-voicecard/
 The main problem is there are no new releases of the drivers for the latest kernel versions, so you have to use an older kernel version. You have to use a fork.
+
+Installing the pip packages takes so long. do it with uv in a separate screen to save time
+source venv/bin/activate
+
+screen -S pipinstall
+
+uv pipi install -r requirements.txt
