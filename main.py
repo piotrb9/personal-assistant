@@ -23,7 +23,7 @@ import io
 import signal
 import asyncio
 
-from langflow_endpoint import query_langflow
+from langflow_datastax_endpoint import query_hosted_langflow
 
 LOG_FILE = "interaction_log.csv"
 
@@ -502,7 +502,7 @@ class Generator:
                     interrupt_requested[0] = False
 
                     try:
-                        response = query_langflow(user_text)
+                        response = query_hosted_langflow(user_text)
 
                         sentences = re.split(r'(?<=[.!?]) +', response)
                         for sentence in sentences:

@@ -17,5 +17,6 @@
     "speaker_warmup_sec": 5.0,
     "porcupine_sensitivity": 0.5,
     "speaker_warmup_sec_warmup_sec": 0,
-    "langflow_url": "URL_TO_THE_FLOW"
+    "langflow_url": "URL_TO_THE_FLOW",
+    "langflow_token": "DATASTAX_API_KEY"
 }
