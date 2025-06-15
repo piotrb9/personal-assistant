@@ -596,17 +596,9 @@ class Listener:
         try:
             openai.api_key = self.config['openai_api_key']
 
-            audio = AudioSegment.from_wav(wav)
-            mp3_buffer = io.BytesIO()
-            audio.export(mp3_buffer, format='mp3', bitrate='32k')
-            mp3_buffer.seek(0)
-
-            mp3_file = io.BytesIO(mp3_buffer.getvalue())
-            mp3_file.name = 'audio.mp3'
-
-            logging.info("Sending compressed audio to OpenAI API")
+            wav.name = 'audio.wav'  # Whisper API expects file-like with .name
             resp = openai.audio.transcriptions.create(
-                file=mp3_file,
+                file=wav,
                 model="whisper-1",
                 response_format="text"
             )
