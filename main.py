@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import struct
 import sys
 import time
 import wave
@@ -317,33 +318,35 @@ class Synthesizer:
                 except Exception as e:
                     logging.error(f"Error during synthesis: {e}")
 
+
 def synthesize_with_elevenlabs_streaming_tts(
         text,
         api_key,
         voice_id,
-        model_id='eleven_flash_v2_5',
+        model_id='eleven_monolingual_v1',
         sample_rate=24000,
         cache_dir='tts_cache',
         previous_text_input=None):
+
     os.makedirs(cache_dir, exist_ok=True)
 
     text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-    cache_path = os.path.join(cache_dir, f"{text_hash}.mp3")
+    cache_path = os.path.join(cache_dir, f"{text_hash}.pcm")
 
     if os.path.exists(cache_path):
-        logging.info(f"Using cached audio for text: {text}")
+        logging.info(f"Using cached PCM audio for text: {text}")
         with open(cache_path, 'rb') as f:
-            buffer = f.read()
+            raw_pcm = f.read()
     else:
-        logging.info(f"Fetching audio from ElevenLabs API for text: {text}")
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+        logging.info(f"Fetching PCM audio from ElevenLabs API for text: {text}")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?output_format=pcm_{sample_rate}"
         headers = {
             "xi-api-key": api_key,
         }
         json_payload = {
             "text": text,
             "model_id": model_id,
-            "optimize_streaming_latency ": 1,
+            "optimize_streaming_latency": 1,
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.7
@@ -356,34 +359,25 @@ def synthesize_with_elevenlabs_streaming_tts(
         try:
             with requests.post(url, json=json_payload, headers=headers, stream=True) as r:
                 r.raise_for_status()
-                buffer = b"".join(r.iter_content(chunk_size=4096))
-            logging.info("Audio fetched successfully from ElevenLabs API.")
-
+                raw_pcm = b''.join(r.iter_content(chunk_size=4096))
+            logging.info("PCM audio fetched successfully.")
             with open(cache_path, 'wb') as f:
-                f.write(buffer)
-            logging.info(f"Audio saved to cache: {cache_path}")
+                f.write(raw_pcm)
         except requests.exceptions.RequestException as e:
             logging.error(f"Error fetching audio from ElevenLabs API: {e}")
             raise
 
+    # Convert raw PCM bytes to list of 16-bit samples
     try:
-        segment = AudioSegment.from_file(io.BytesIO(buffer), format="mp3")
-        segment = segment.set_frame_rate(sample_rate).set_channels(1).set_sample_width(2)
-        raw_pcm = segment.raw_data
-
-        pcm_samples = [
-            int.from_bytes(raw_pcm[i: i + 2], "little", signed=True)
-            for i in range(0, len(raw_pcm), 2)
-        ]
-
-        logging.info("Audio decoded successfully.")
+        pcm_samples = struct.unpack('<' + 'h' * (len(raw_pcm) // 2), raw_pcm)
+        logging.info("PCM audio decoded successfully.")
     except Exception as e:
-        logging.error(f"Error decoding audio: {e}")
+        logging.error(f"Error decoding PCM audio: {e}")
         raise
 
     pcm_chunk_size = 2048
     for i in range(0, len(pcm_samples), pcm_chunk_size):
-        yield pcm_samples[i: i + pcm_chunk_size]
+        yield pcm_samples[i:i + pcm_chunk_size]
 
 class Generator:
     def __init__(
